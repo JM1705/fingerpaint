@@ -15,9 +15,12 @@ import PIL.ImageDraw
 import evdev
 import pyudev
 
+from datetime import datetime
+
 DEFAULT_WIDTH = 600
 AA_FACTOR = 4  # Anti-aliasing
 OUTPUT_SCALE = 2
+MAX_REFRESH_INTERVAL = 0.04 # Works on my ~80hz touchpad, may need to increase for slower touchpads
 
 
 @contextlib.contextmanager
@@ -94,25 +97,30 @@ def make_ui(events, image_size, devname, args):
                     screen_projected_end = (line[1][0] * window_size[0], line[1][1] * window_size[1])
                     image_projected_start = (line[0][0] * image_size[0], line[0][1] * image_size[1])
                     image_projected_end = (line[1][0] * image_size[0], line[1][1] * image_size[1])
-                    canvas.create_line(
-                        screen_projected_start, screen_projected_end,
-                        width=args.line_thickness, capstyle=tkinter.ROUND, fill=args.line_color
-                    )
-                    image_canvas.line(
-                        ((int(image_projected_start[0] * aa_factor), int(image_projected_start[1] * aa_factor)),
-                         (int(image_projected_end[0] * aa_factor), int(image_projected_end[1] * aa_factor))),
-                        width=int(args.line_thickness * aa_factor), joint='curve', fill=(0, 0, 0)
-                    )
-                    offset = (args.line_thickness * aa_factor - 1) / 2
-                    image_canvas.ellipse(
-                        (int(image_projected_start[0] * aa_factor - offset), int(image_projected_start[1] * aa_factor - offset),
-                         int(image_projected_start[0] * aa_factor + offset), int(image_projected_start[1] * aa_factor + offset)),
-                        fill=(0, 0, 0)
-                    )
-                    image_canvas.ellipse(
-                        (int(image_projected_end[0] * aa_factor - offset), int(image_projected_end[1] * aa_factor - offset),
-                         int(image_projected_end[0] * aa_factor + offset), int(image_projected_end[1] * aa_factor + offset)),
-                        fill=(0, 0, 0)
+
+                    delta = line[2]
+                    # if delta > MAX_REFRESH_INTERVAL:
+                    #     print("Detected jump")
+                    if delta <= MAX_REFRESH_INTERVAL:
+                        canvas.create_line(
+                            screen_projected_start, screen_projected_end,
+                            width=args.line_thickness, capstyle=tkinter.ROUND, fill=args.line_color
+                        )
+                        image_canvas.line(
+                            ((int(image_projected_start[0] * aa_factor), int(image_projected_start[1] * aa_factor)),
+                             (int(image_projected_end[0] * aa_factor), int(image_projected_end[1] * aa_factor))),
+                            width=int(args.line_thickness * aa_factor), joint='curve', fill=(0, 0, 0)
+                        )
+                        offset = (args.line_thickness * aa_factor - 1) / 2
+                        image_canvas.ellipse(
+                            (int(image_projected_start[0] * aa_factor - offset), int(image_projected_start[1] * aa_factor - offset),
+                             int(image_projected_start[0] * aa_factor + offset), int(image_projected_start[1] * aa_factor + offset)),
+                            fill=(0, 0, 0)
+                        )
+                        image_canvas.ellipse(
+                            (int(image_projected_end[0] * aa_factor - offset), int(image_projected_end[1] * aa_factor - offset),
+                             int(image_projected_end[0] * aa_factor + offset), int(image_projected_end[1] * aa_factor + offset)),
+                            fill=(0, 0, 0)
                     )
 
                 top.update_idletasks()
@@ -185,6 +193,7 @@ def main(args):
         last_pos = (-1, -1)
         curr_pos = (-1, -1)
         wip_pos = (-1, -1)
+        last_time = datetime.now()
         while True:
             event = touchpad.read_one()
             if event:
@@ -207,7 +216,10 @@ def main(args):
                     # Work with light taps
                     last_pos = curr_pos
                 if last_pos[0] != -1 and last_pos[1] != -1 and curr_pos[0] != -1 and curr_pos[1] != -1:
-                    yield [(last_pos, curr_pos)]
+                    now_time = datetime.now()
+                    delta_secs = (now_time-last_time).total_seconds()
+                    last_time = now_time
+                    yield [(last_pos, curr_pos, delta_secs)]
                 else:
                     yield []
                 last_pos = curr_pos
